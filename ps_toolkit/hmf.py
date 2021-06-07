@@ -94,7 +94,7 @@ def mass_variance(pspec, k, radii, cosmo,
     the mass scale in units M_sol h^3
     '''
     
-    masses = cosmo.rho_m0 * 4/3 * np.pi * radii ** 3 # Msol h^3 
+    masses = cosmo.rho_m0 * 4/3 * np.pi * radii ** 3 # Msol h^{-1}
 
     if printOutput == True:
         print("mass_variance: max(P) = {:.3}".format(max(pspec.val(k))))
@@ -113,12 +113,13 @@ def mass_variance(pspec, k, radii, cosmo,
     
 def PS_HMF(P0, 
            k, 
-           input_cosmo = "planck15", 
+           input_cosmo = "default", 
            z=0, 
            mode = 'PS', 
            printOutput = False, 
            epsilon = 1.686, 
-           krange = None):
+           krange = None,
+           nmasses = 200):
     
     '''
     Takes power spectrum linearly evolved to z=0 and returns the HMF as predicted by 
@@ -148,19 +149,18 @@ def PS_HMF(P0,
     cosmo = Cosmology(cosmology = input_cosmo)
         
     d = cosmo.GrowthFactor(z) / cosmo.GrowthFactor(0)
-    #d = D_plus(1/(1+z))/D_plus(1)
         
     # create power spectrum object to allow for extrapolation
     pspec = PowerSpec(k, P0)
     
     if krange == None:
-        k2 = np.logspace(np.log10(pspec.klow), np.log10(pspec.khigh), int(1e5))
+        k2 = np.logspace(np.log10(pspec.klow/100), np.log10(pspec.khigh*100), int(1e5))
     else:
         k2 = np.logspace(np.log10(min(krange)), np.log10(max(krange)), int(1e5))
                      
     R = np.logspace(np.log10(2*np.pi/max(k2)),
                     np.log10(2*np.pi/min(k2)), 
-                    200) # h^(-1) Mpc
+                    nmasses) # h^(-1) Mpc
     
     if printOutput == True:
         print("Min R = {}, max R = {}".format(min(R), max(R)))
@@ -194,7 +194,7 @@ def PS_HMF(P0,
     return HMF, M, f, sigma, [pspec.val(k2)*d**2, k2]
 
     
-def massfrac(pspec, redshifts, Mtot, mode = "PS"):
+def massfrac(pspec, redshifts, Mtot = None, mode = "PS", cosmology = "default", epsilon = 1.686):
     ''' Use PS to estimate bound mass fraction
     '''
     
@@ -202,14 +202,24 @@ def massfrac(pspec, redshifts, Mtot, mode = "PS"):
     '''cal_massfrac() Error: Mode not recognised. Use PS, ST. 
     TK currently not working for mass frac calculations'''
     
+    if Mtot == None:
+        cosmo = Cosmology(cosmology = cosmology)
+        Mtot = cosmo.rho_m0
+    
     Pdata, kdata = pspec
+    krange = [min(kdata)/1000, max(kdata)*100]
     
-    HMFs = [PS_HMF(Pdata, kdata, z=z, mode = mode)[0] for z in redshifts]
-    M = PS_HMF(Pdata, kdata, z=redshifts[0], mode = 'PS')[1]
+    HMFs = [PS_HMF(Pdata, kdata, z=z, mode = mode, 
+                   krange = krange, input_cosmo = cosmology, epsilon = epsilon)[0] for z in redshifts]
     
-    fb = [np.trapz(HMFs[i]*M, np.log10(M))/Mtot for i in range(len(redshifts))]
+    M = PS_HMF(Pdata, kdata, z=redshifts[0], mode = mode, 
+               krange = krange, input_cosmo = cosmology)[1]
     
-    return fb
+    mask  = M <= Mtot
+    
+    fb = np.asarray([np.trapz((HMFs[i]*M)[mask], np.log10(M[mask]))/Mtot for i in range(len(redshifts))])
+    
+    return fb*cosmo.h
 
 def haloNums(pspec, redshifts, boxVol, cutoffmasses=[0], mode="PS"):
     ''' Use PS to estimate number of halos
@@ -219,11 +229,12 @@ def haloNums(pspec, redshifts, boxVol, cutoffmasses=[0], mode="PS"):
     TK currently not working for halo num calculations'''
     
     Pdata, kdata = pspec
-        
-    HMFs = [PS_HMF(Pdata, kdata, z=z, mode = mode)[0] for z in redshifts]    
-    M = PS_HMF(Pdata, kdata, 0, mode = 'PS')[1] 
+    krange = [min(kdata)/100, max(kdata)*10]
+    
+    HMFs = [PS_HMF(Pdata, kdata, z=z, mode = mode, krange = krange)[0] for z in redshifts]    
+    M = PS_HMF(Pdata, kdata, z=0, mode = mode, krange = krange)[1] 
    
     HaloNums = [[np.trapz(HMFs[i][M>mass]*(1e-6)**3*boxVol,
-    np.log(M[M>mass])) for i in range(len(redshifts))] for mass in cutoffmasses]
+    np.log10(M[M>mass])) for i in range(len(redshifts))] for mass in cutoffmasses]
     
     return HaloNums

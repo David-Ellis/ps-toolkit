@@ -6,12 +6,23 @@ Module for calculating halo concentrations
 # Standard modules
 from scipy.special import erfc
 from scipy.optimize import root_scalar
+from scipy.interpolate import interp1d
 import numpy as np
 
 # local modules
 from ps_toolkit.cosmology import Cosmology
+from ps_toolkit.hmf import PS_HMF
 
-def PS_Prob(z, M, z0, sig, f = 0.01, epsilon = 1.686, cosmology = "planck15"):
+# Cosmological parameters
+Omega_m0 = 0.3
+Omega_r0 = 8.486e-5
+h = 0.678 # Planck 15
+
+z_eq = Omega_m0/Omega_r0 - 1
+a_eq = 1/(1+z_eq)
+
+
+def PS_Prob(z, M, z0, sig, f = 0.01, epsilon = 1.686, cosmology = "default"):
     
     '''Calculate probability of halo projenitors at z having mass greater than f*M
     where M is the mass at the final redshift z0
@@ -29,7 +40,7 @@ def PS_Prob(z, M, z0, sig, f = 0.01, epsilon = 1.686, cosmology = "planck15"):
     prob : probablity (float)
     '''
     
-    cosmo = cosmology.cosmo()
+    cosmo = Cosmology(cosmology = cosmology)
     
     sig1 = sig(f*M)
     sig2 = sig(M)
@@ -48,7 +59,8 @@ def PS_Prob(z, M, z0, sig, f = 0.01, epsilon = 1.686, cosmology = "planck15"):
     
     return prob
 
-def solve_PS_Prob(z, M, z0, siglog, f, epsilon = 1.686, printOutput = False):
+def solve_PS_Prob(z, M, z0, siglog, f, epsilon = 1.686, 
+                  cosmology = "default"):
     """ Equation to be solved in Find_zcol()
     
     Parameters
@@ -59,15 +71,17 @@ def solve_PS_Prob(z, M, z0, siglog, f, epsilon = 1.686, printOutput = False):
     siglog: interpolated function for the log of the mass variance 
     f (optional): fraction of total mass for progenitors (float)
     """
-    return 0.5 - PS_Prob(z, M, z0, siglog, f, epsilon = epsilon)
+    return 0.5 - PS_Prob(z, M, z0, siglog, f, epsilon = epsilon, cosmology = cosmology)
 
-def Find_zcol(Pdata, kdata, masses, z0, f = 0.01, printOutput = False, krange = None, epsilon = 1.686):
+def Find_zcol(Pdata, kdata, masses, z0, f = 0.01, printOutput = False, 
+              krange = None, epsilon = 1.686, cosmology = "default"):
     unconverged = 0
     z_col = np.zeros(len(masses))
     
-    HMF_PS, M2, f_PS, sigma0, slinedata = PS_HMF(Pdata, kdata, z=0, krange = krange, epsilon = epsilon)
+    HMF_PS, M2, f_PS, sigma0, slinedata = PS_HMF(Pdata, kdata, z=0, krange = krange, 
+                                                 epsilon = epsilon, input_cosmo = cosmology)
     
-    sig = interp1d(M2, sigma0)
+    sig = interp1d(M2, sigma0, bounds_error=None, fill_value="extrapolate")
     
     if f*min(masses)<min(M2):
         print("Error: Desired mass and proj fraction too small for HMF data")
@@ -75,7 +89,7 @@ def Find_zcol(Pdata, kdata, masses, z0, f = 0.01, printOutput = False, krange = 
         print("min(HMF mass) = {} Msol".format(min(M2)))
     
     for i, M in enumerate(masses):
-        sol = root_scalar(solve_PS_Prob, args = (M, z0, sig, f, epsilon), bracket=(1e7, z0))
+        sol = root_scalar(solve_PS_Prob, args = (M, z0, sig, f, epsilon, cosmology), bracket=(1e7, z0))
         if sol.converged == True:
             z_col[i] = sol.root
         else:
@@ -84,6 +98,7 @@ def Find_zcol(Pdata, kdata, masses, z0, f = 0.01, printOutput = False, krange = 
             print("{} of {} complete".format(i+1, len(masses)), end = "\r")
     if printOutput == True:
         print()
+        
     return z_col
 
 def find_conc(c, delta):
@@ -105,8 +120,11 @@ def solve_conc(scale_densitys):
             unconverged += 1
     return concs
     
-def pred_conc(mass, C, z0, zcol = [], pspec = None, mode = "NFW", f = 0.01,krange = None, epsilon = 1.686):
+def pred_conc(mass, C, z0, zcol = [], pspec = None, mode = "NFW",
+              f = 0.01,krange = None, epsilon = 1.686, cosmology = "default"):
+    
     assert (mode == "NFW") or (mode == "Bullock"), "Error: mode not recognised."
+    cosmo = Cosmology(cosmology = cosmology)
     
     if zcol == []:
         assert pspec != None, \
@@ -115,11 +133,13 @@ def pred_conc(mass, C, z0, zcol = [], pspec = None, mode = "NFW", f = 0.01,krang
         Pdata, kdata = pspec
         
         # Estimate zcol from PS
-        zcol = Find_zcol(Pdata, kdata, mass, z0, f, epsilon = epsilon, krange = krange)
+        zcol = Find_zcol(Pdata, kdata, mass, z0, f, epsilon = epsilon, 
+                         krange = krange, cosmology = cosmology)
+        
     xcol = (z_eq+1)/(zcol+1); x0 = (z_eq+1)/(z0+1)
     
     if mode == "NFW":
-        Omega_m = Omega_m0*(1+z0)**3/(Omega_m0*(1+z0**3) + Omega_r0*(1+z0)**4 + 0.6911) 
+        Omega_m = cosmo.omega_m*(1+z0)**3/(cosmo.omega_m*(1+z0**3) + cosmo.omega_r*(1+z0)**4 + cosmo.omega_l) 
         x = Omega_m - 1
         del_vir =18*np.pi**2 + 82*x - 39*x**2
      
