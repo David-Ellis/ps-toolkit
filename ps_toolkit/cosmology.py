@@ -10,10 +10,13 @@ default = {"h" : 0.7,
         "omega_m" : 0.3,
         "omega_r" : 8.486e-5}
 
+# units and contants
 units = {"G" : 6.674e-11, # m^3 kg^(-1) s^(-2)
+         "c" : 299792458, # m / s
          "Msol" : 1.988e30, # kg
          "Mpc" : 3.086e22, # m 
-         "Mpcpkm" : 1/(3.0869e19)
+         "Mpcpkm" : 1/(3.0869e19), 
+         "hbar_eVs": 6.58e10-16 # eV s
          }
 #6.674×10−11 m3⋅kg−1⋅s−2.
 
@@ -22,6 +25,8 @@ class Cosmology:
     def __init__(self,
                  cosmology = "default"):
         self.cosmology = cosmology
+        self.units = units
+        
         # standard constants
         if cosmology == "planck15":
             self.h = planck15["h"]

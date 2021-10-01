@@ -87,6 +87,16 @@ def fit_TK(sigma, z, cosmo):
     
     return A*((b / sigma) ** a + 1) * np.exp(- c / sigma**2)
 
+def NormArvanitaki(R, n=1000):
+    kmax = np.pi/R
+    k = np.logspace(np.log10(kmax)-2, np.log10(kmax)+2, n)
+    N = (np.trapz(np.exp(-np.log(k*R)/np.pi), np.log(k)))**(-1/2)
+    return N
+
+def WindowArvanitaki(R, k, N):
+    W = N*np.exp(-(np.log(k*R/np.pi)**2))
+    return W
+
 def mass_variance(pspec, k, radii, cosmo,
                   filter_mode = 'tophat', printOutput = False):
     '''
@@ -105,17 +115,22 @@ def mass_variance(pspec, k, radii, cosmo,
         for i in range(len(radii)):
             W_th = 3*(np.sin(k*radii[i])-k*radii[i]*np.cos(k*radii[i]))/(k*radii[i])**3
             sigma[i] = np.sqrt(1/(2*np.pi**2)*np.trapz(pspec.val(k)*k**2*W_th**2, x=k))
+    elif filter_mode == 'Arvanitaki':
+        for i in range(len(radii)):
+            W_Arvanitaki = WindowArvanitaki(radii[i], k, NormArvanitaki(radii[i]))
+            sigma[i] = np.sqrt(1/(2*np.pi**2)*np.trapz(pspec.val(k)*k**2*W_Arvanitaki**2, x=k))
     else:
         print("ERROR: Unexpected filter mode.")
         
     return sigma, masses
 
     
-def PS_HMF(P0, 
+def PS_HMF(P0, # linear power spectrum at z=0
            k, 
            input_cosmo = "default", 
            z=0, 
-           mode = 'PS', 
+           mode = 'PS', # PS or ST
+           filter_mode = "tophat",
            printOutput = False, 
            epsilon = 1.686, 
            krange = None,
@@ -166,7 +181,7 @@ def PS_HMF(P0,
         print("Min R = {}, max R = {}".format(min(R), max(R)))
         
     sigma0, M = mass_variance(pspec, k2, R, cosmo, 
-                              filter_mode = 'tophat',
+                              filter_mode = filter_mode,
                               printOutput = printOutput)
     
     if printOutput == True:
